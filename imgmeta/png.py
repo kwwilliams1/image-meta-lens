@@ -1,10 +1,10 @@
 """PNG parsing: dimensions and color info from IHDR, key/value pairs from
-tEXt chunks. iTXt/zTXt (compressed or international text) aren't handled
-yet -- see README roadmap.
+tEXt/zTXt/iTXt chunks.
 """
 
 import os
 import struct
+import zlib
 
 from .errors import UnsupportedFormatError
 
@@ -43,6 +43,14 @@ def parse_png(path):
             elif chunk_type == b"tEXt" and b"\x00" in data:
                 keyword, _, value = data.partition(b"\x00")
                 text[keyword.decode("latin-1")] = value.decode("latin-1")
+            elif chunk_type == b"zTXt":
+                entry = _parse_ztxt(data)
+                if entry is not None:
+                    text[entry[0]] = entry[1]
+            elif chunk_type == b"iTXt":
+                entry = _parse_itxt(data)
+                if entry is not None:
+                    text[entry[0]] = entry[1]
             elif chunk_type == b"IEND":
                 break
 
@@ -53,3 +61,45 @@ def parse_png(path):
         "image": image,
         "text": text,
     }
+
+
+def _parse_ztxt(data):
+    """zTXt: keyword\\0 compression_method(1) zlib-compressed latin-1 text."""
+    keyword, sep, rest = data.partition(b"\x00")
+    if not sep or len(rest) < 1:
+        return None
+    # rest[0] is the compression method; 0 (deflate) is the only one defined.
+    try:
+        value = zlib.decompress(rest[1:]).decode("latin-1")
+    except zlib.error:
+        return None
+    return keyword.decode("latin-1"), value
+
+
+def _parse_itxt(data):
+    """iTXt: keyword\\0 compressed(1) method(1) language\\0 translated\\0 text.
+
+    The text is UTF-8, optionally zlib-compressed; keyword stays Latin-1 per
+    spec even though the rest of the chunk is UTF-8.
+    """
+    keyword, sep, rest = data.partition(b"\x00")
+    if not sep or len(rest) < 2:
+        return None
+    compressed = rest[0]
+    rest = rest[2:]  # skip compressed flag and compression method
+    _language, sep, rest = rest.partition(b"\x00")
+    if not sep:
+        return None
+    _translated_keyword, sep, rest = rest.partition(b"\x00")
+    if not sep:
+        return None
+    if compressed:
+        try:
+            rest = zlib.decompress(rest)
+        except zlib.error:
+            return None
+    try:
+        value = rest.decode("utf-8")
+    except UnicodeDecodeError:
+        return None
+    return keyword.decode("latin-1"), value

@@ -18,8 +18,9 @@ resizing, no writing files back out.
 - JPEG: width/height from the SOF marker, plus Make, Model, Orientation,
   Software, DateTime, ExposureTime, FNumber, ISOSpeedRatings,
   DateTimeOriginal, and FocalLength from the Exif segment when present.
-- PNG: width/height/bit depth/color type from IHDR, plus any `tEXt`
-  key/value pairs.
+- PNG: width/height/bit depth/color type from IHDR, plus any `tEXt`,
+  `zTXt`, or `iTXt` key/value pairs (compressed and international text
+  chunks are decompressed/decoded, not just skipped).
 
 Anything else raises `imgmeta.UnsupportedFormatError`.
 
@@ -49,8 +50,8 @@ print(imgmeta.format_json(data))
 ```
 
 For PNGs the shape is the same except `exif` is replaced with `text`,
-holding whatever `tEXt` chunks were embedded (things like `Comment` or
-software-specific keys).
+holding whatever `tEXt`/`zTXt`/`iTXt` chunks were embedded (things like
+`Comment` or software-specific keys).
 
 ### Command line
 
