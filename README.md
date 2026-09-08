@@ -18,6 +18,10 @@ resizing, no writing files back out.
 - JPEG: width/height from the SOF marker, plus Make, Model, Orientation,
   Software, DateTime, ExposureTime, FNumber, ISOSpeedRatings,
   DateTimeOriginal, and FocalLength from the Exif segment when present.
+  If the Exif GPS IFD is present, its raw tags (GPSLatitude, GPSLatitudeRef,
+  GPSLongitude, GPSLongitudeRef, GPSAltitude, GPSAltitudeRef, GPSTimeStamp,
+  GPSDateStamp) show up under `data["gps"]`, along with derived `Latitude`
+  and `Longitude` fields already converted to signed decimal degrees.
 - PNG: width/height/bit depth/color type from IHDR, plus any `tEXt`,
   `zTXt`, or `iTXt` key/value pairs (compressed and international text
   chunks are decompressed/decoded, not just skipped).

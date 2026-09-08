@@ -1,6 +1,7 @@
-"""JPEG parsing: image dimensions from SOF markers, camera info from the
-Exif APP1 segment. Only the TIFF tags that show up in practice for basic
-metadata reporting are decoded; anything else in the IFDs is skipped.
+"""JPEG parsing: image dimensions from SOF markers, camera info and GPS
+coordinates from the Exif APP1 segment. Only the TIFF tags that show up in
+practice for basic metadata reporting are decoded; anything else in the
+IFDs is skipped.
 """
 
 import os
@@ -38,7 +39,20 @@ EXIF_TAGS = {
     0x920A: "FocalLength",
 }
 
+GPS_TAGS = {
+    0x0001: "GPSLatitudeRef",
+    0x0002: "GPSLatitude",
+    0x0003: "GPSLongitudeRef",
+    0x0004: "GPSLongitude",
+    0x0005: "GPSAltitudeRef",
+    0x0006: "GPSAltitude",
+    0x0007: "GPSTimeStamp",
+    0x001D: "GPSDateStamp",
+}
+
 _EXIF_IFD_POINTER = 0x8769
+_GPS_IFD_POINTER = 0x8825
+_IFD_POINTERS = {_EXIF_IFD_POINTER: "exif", _GPS_IFD_POINTER: "gps"}
 
 # byte-length of one value of each TIFF field type, indexed by type id.
 _TYPE_SIZES = {1: 1, 2: 1, 3: 2, 4: 4, 5: 8, 6: 1, 7: 1, 8: 2, 9: 4, 10: 8, 11: 4, 12: 8}
@@ -54,6 +68,7 @@ def parse_jpeg(path):
 
         image = {}
         exif = {}
+        gps = {}
         for marker, payload in _iter_segments(f):
             if marker in _SOF_MARKERS and "width" not in image:
                 # payload: precision(1) height(2) width(2) ...
@@ -62,15 +77,20 @@ def parse_jpeg(path):
                     image["width"] = width
                     image["height"] = height
             elif marker == _APP1 and payload.startswith(b"Exif\x00\x00"):
-                exif.update(_parse_exif(payload[6:]))
+                tags, gps_tags = _parse_exif(payload[6:])
+                exif.update(tags)
+                gps.update(gps_tags)
 
-    return {
+    result = {
         "path": path,
         "format": "JPEG",
         "file_size": os.path.getsize(path),
         "image": image,
         "exif": exif,
     }
+    if gps:
+        result["gps"] = gps
+    return result
 
 
 def _iter_segments(f):
@@ -97,44 +117,75 @@ def _iter_segments(f):
 
 def _parse_exif(tiff):
     if len(tiff) < 8:
-        return {}
+        return {}, {}
     byte_order = tiff[:2]
     if byte_order == b"II":
         endian = "<"
     elif byte_order == b"MM":
         endian = ">"
     else:
-        return {}
+        return {}, {}
 
     tags = {}
+    gps = {}
     try:
         ifd0_offset = struct.unpack(endian + "I", tiff[4:8])[0]
-        exif_offset = _parse_ifd(tiff, ifd0_offset, endian, IFD0_TAGS, tags)
+        sub_ifds = _parse_ifd(tiff, ifd0_offset, endian, IFD0_TAGS, tags)
+        exif_offset = sub_ifds.get("exif")
+        gps_offset = sub_ifds.get("gps")
         if exif_offset is not None:
             _parse_ifd(tiff, exif_offset, endian, EXIF_TAGS, tags)
+        if gps_offset is not None:
+            _parse_ifd(tiff, gps_offset, endian, GPS_TAGS, gps)
+            _add_decimal_coordinates(gps)
     except (struct.error, IndexError):
         # Truncated or malformed IFD: keep whatever we already decoded.
         pass
-    return tags
+    return tags, gps
 
 
 def _parse_ifd(tiff, offset, endian, tag_names, out):
-    """Decode one IFD, writing recognized tags into `out`. Returns the
-    Exif sub-IFD offset if this IFD pointed to one, else None.
+    """Decode one IFD, writing recognized tags into `out`. Returns a dict of
+    any sub-IFD pointers this IFD contained, keyed by name (e.g. "exif",
+    "gps").
     """
     count = struct.unpack(endian + "H", tiff[offset:offset + 2])[0]
     entry_offset = offset + 2
-    exif_ifd_offset = None
+    sub_ifds = {}
     for _ in range(count):
         entry = tiff[entry_offset:entry_offset + 12]
         tag, field_type, field_count = struct.unpack(endian + "HHI", entry[:8])
         value = _decode_value(tiff, endian, field_type, field_count, entry[8:12])
-        if tag == _EXIF_IFD_POINTER and isinstance(value, int):
-            exif_ifd_offset = value
+        pointer_name = _IFD_POINTERS.get(tag)
+        if pointer_name is not None and isinstance(value, int):
+            sub_ifds[pointer_name] = value
         elif tag in tag_names and value is not None:
             out[tag_names[tag]] = value
         entry_offset += 12
-    return exif_ifd_offset
+    return sub_ifds
+
+
+def _add_decimal_coordinates(gps):
+    """Add signed decimal-degree Latitude/Longitude fields derived from the
+    raw GPSLatitude/GPSLongitude (degrees, minutes, seconds) tuples, which
+    are otherwise awkward for callers to use directly.
+    """
+    lat = _dms_to_decimal(gps.get("GPSLatitude"), gps.get("GPSLatitudeRef"))
+    if lat is not None:
+        gps["Latitude"] = lat
+    lon = _dms_to_decimal(gps.get("GPSLongitude"), gps.get("GPSLongitudeRef"))
+    if lon is not None:
+        gps["Longitude"] = lon
+
+
+def _dms_to_decimal(dms, ref):
+    if not isinstance(dms, tuple) or len(dms) != 3:
+        return None
+    degrees, minutes, seconds = dms
+    decimal = degrees + minutes / 60 + seconds / 3600
+    if ref in ("S", "W"):
+        decimal = -decimal
+    return decimal
 
 
 def _decode_value(tiff, endian, field_type, count, inline_bytes):

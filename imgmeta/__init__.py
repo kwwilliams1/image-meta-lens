@@ -57,6 +57,12 @@ def format_human(metadata):
         for key in sorted(exif):
             lines.append(f"    {key}: {exif[key]}")
 
+    gps = metadata.get("gps")
+    if gps:
+        lines.append("  gps:")
+        for key in sorted(gps):
+            lines.append(f"    {key}: {gps[key]}")
+
     text = metadata.get("text")
     if text:
         lines.append("  text:")
