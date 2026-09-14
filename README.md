@@ -1,7 +1,7 @@
 # imgmeta
 
-Reads dimensions, EXIF camera fields, and PNG text chunks out of image
-files. Pure standard library, no dependencies.
+Reads dimensions, EXIF camera fields, and PNG text chunks out of JPEG, PNG,
+and WebP files. Pure standard library, no dependencies.
 
 ## Why
 
@@ -10,8 +10,8 @@ is this image" it doesn't need a whole imaging library, it needs a couple
 of fields out of a header. Pulling in Pillow (or a compiled exif library)
 for that is a lot of dependency weight and build-toolchain risk for a
 handful of struct.unpack calls. This library does just the parsing: JPEG
-markers and the Exif APP1 segment, PNG chunks. No image decoding, no
-resizing, no writing files back out.
+markers and the Exif APP1 segment, PNG chunks, WebP's RIFF container. No
+image decoding, no resizing, no writing files back out.
 
 ## Supported formats
 
@@ -25,6 +25,10 @@ resizing, no writing files back out.
 - PNG: width/height/bit depth/color type from IHDR, plus any `tEXt`,
   `zTXt`, or `iTXt` key/value pairs (compressed and international text
   chunks are decompressed/decoded, not just skipped).
+- WebP: width/height from the VP8, VP8L, or VP8X chunk (whichever the file
+  uses), plus `has_alpha`/`has_animation` flags from VP8X when present. If
+  an `EXIF` chunk is present its tags are decoded the same way as a JPEG's,
+  including GPS and the derived decimal `Latitude`/`Longitude`.
 
 Anything else raises `imgmeta.UnsupportedFormatError`.
 

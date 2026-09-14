@@ -10,6 +10,7 @@ import json
 from .errors import UnsupportedFormatError
 from .jpeg import parse_jpeg
 from .png import PNG_SIGNATURE, parse_png
+from .webp import parse_webp
 
 __all__ = [
     "read_metadata",
@@ -28,12 +29,14 @@ def read_metadata(path):
     "exif" that come from RATIONAL fields, which are plain floats already.
     """
     with open(path, "rb") as f:
-        header = f.read(8)
+        header = f.read(12)
 
     if header[:2] == b"\xff\xd8":
         return parse_jpeg(path)
-    if header == PNG_SIGNATURE:
+    if header[:8] == PNG_SIGNATURE:
         return parse_png(path)
+    if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+        return parse_webp(path)
     raise UnsupportedFormatError(f"unrecognized image format: {path}")
 
 
@@ -49,6 +52,14 @@ def format_human(metadata):
         dims = f"  {image['width']}x{image['height']}"
         if "color_type" in image:
             dims += f", {image['color_type']}, {image.get('bit_depth')}-bit"
+        else:
+            flags = [
+                name
+                for name, key in (("alpha", "has_alpha"), ("animation", "has_animation"))
+                if image.get(key)
+            ]
+            if flags:
+                dims += f", {', '.join(flags)}"
         lines.append(dims)
 
     exif = metadata.get("exif")
