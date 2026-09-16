@@ -97,6 +97,16 @@ $ python -m imgmeta --json vacation.jpg
 ]
 ```
 
+## Tests
+
+```
+python -m unittest discover
+```
+
+Tests build their fixture files on the fly (a few bytes of hand-assembled
+PNG chunks, JPEG markers, and RIFF/TIFF data) instead of shipping binary
+sample images in the repo.
+
 ## Install
 
 Not published anywhere yet. Copy the `imgmeta/` package into your project,
